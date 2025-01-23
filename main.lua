@@ -26,7 +26,6 @@ AddEventHandler('playerConnecting', function(playerName, setKickReason, deferral
 
     local src = source
     local steamId, discordId, ip, hardwareId
-
     local errorMsg = ""
 
     for _, identifier in ipairs(GetPlayerIdentifiers(src)) do
@@ -61,15 +60,22 @@ AddEventHandler('playerConnecting', function(playerName, setKickReason, deferral
 
     local result = exports.oxmysql:executeSync("SELECT * FROM accounts WHERE ip = ?", {ip})
 
-    if result and result[1] then
-        if result[1].whitelist == 1 then
-            exports.oxmysql:executeSync(
+    if result and #result > 0 then
+        local playerData = result[1]
+        local whitelistStatus = playerData.whitelist and 1 or 0
+
+        if whitelistStatus == 1 then
+            local updateResult = exports.oxmysql:executeSync(
                 "UPDATE accounts SET ultimo_acesso = CURRENT_TIMESTAMP, ip = ?, steam_id = ?, discord_id = ? WHERE ip = ?",
                 {ip, steamId or "N/A", discordId or "N/A", ip}
             )
-            deferrals.done()
+            if updateResult then
+                deferrals.done()
+            else
+                deferrals.done("Erro ao atualizar os dados do jogador. Tente novamente mais tarde.")
+            end
         else
-            local token = result[1].token_id
+            local token = playerData.token_id
             deferrals.done("\n\n Você não está na whitelist do servidor. \n Por favor, realize sua whitelist em nosso discord.\n discord.gg/seudiscord \n\n Seu Token ID: " .. token)
         end
     else
@@ -79,16 +85,15 @@ AddEventHandler('playerConnecting', function(playerName, setKickReason, deferral
             return
         end
 
-        exports.oxmysql:insert(
+        local insertResult = exports.oxmysql:insertSync(
             "INSERT INTO accounts (token_id, steam_id, discord_id, ip, hardware_id, whitelist) VALUES (?, ?, ?, ?, ?, ?)",
-            {token, steamId or "N/A", discordId or "N/A", ip, hardwareId or "N/A", 0},
-            function(id)
-                if id then
-                    deferrals.done("\n\n Você não está na whitelist do servidor.\n Por favor, realize sua whitelist em nosso discord.\n discord.gg/seudiscord. \n\n Seu Token ID: " .. token)
-                else
-                    deferrals.done("Erro ao registrar sua conta. Por favor, tente novamente mais tarde.")
-                end
-            end
+            {token, steamId or "N/A", discordId or "N/A", ip, hardwareId or "N/A", 0}
         )
+
+        if insertResult then
+            deferrals.done("\n\n Você não está na whitelist do servidor.\n Por favor, realize sua whitelist em nosso discord.\n discord.gg/seudiscord. \n\n Seu Token ID: " .. token)
+        else
+            deferrals.done("Erro ao registrar sua conta. Por favor, tente novamente mais tarde.")
+        end
     end
 end)
